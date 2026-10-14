@@ -74,7 +74,13 @@ intellijPlatformTesting {
     runIde {
         // Sandbox IDE with the Multi-Project Workspace plugin, for testing with many linked builds
         register("runIdeWithWorkspace") {
-            plugins { plugin("org.jetbrains.plugins.workspace", "262.8665.176") }
+            plugins {
+                plugin("org.jetbrains.plugins.workspace", "262.8665.176")
+                // The other plugins of the series, when built next to this project (gradle buildPlugin there)
+                listOf("gradle-sync-queue", "workspace-defaults", "project-view-groups")
+                    .mapNotNull { file("../$it/build/distributions").listFiles { f -> f.extension == "zip" }?.maxByOrNull { f -> f.lastModified() } }
+                    .forEach { localPlugin(it) }
+            }
         }
     }
 }
