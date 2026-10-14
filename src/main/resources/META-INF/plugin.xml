@@ -1,0 +1,29 @@
+<idea-plugin>
+    <id>de.inetsoftware.eclipse-launch-configs</id>
+    <name>Eclipse Launch Configs</name>
+    <vendor url="https://www.inetsoftware.de">i-net software</vendor>
+    <description><![CDATA[
+    <p>Uses Eclipse launch configurations (<code>.launch</code> files) as live run configurations, so a team can share
+    them between Eclipse and IntelliJ IDEA.</p>
+    <ul>
+      <li>JUnit and Java Application launch files in the project folders appear as <b>Eclipse Launch</b> run
+      configurations, grouped by Eclipse project, ready to run and debug</li>
+      <li>Changes in IntelliJ IDEA are written back to the <code>.launch</code> file: only the changed attributes are
+      touched, unknown attributes, order and formatting stay as Eclipse wrote them</li>
+      <li>Changes to the file (VCS update, Eclipse, editor) show up immediately</li>
+      <li>Eclipse variables like <code>${workspace_loc}</code>, <code>${project_loc}</code>, <code>${env_var:…}</code>
+      and user defined workspace variables are resolved at launch</li>
+      <li>Eclipse projects are mapped to the IDEA modules by folder, including Gradle source set modules</li>
+      <li>Optionally, Eclipse output folders such as <code>bin/main</code> are replaced by the IDEA module output</li>
+    </ul>
+    ]]></description>
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>JUnit</depends>
+    <extensions defaultExtensionNs="com.intellij">
+        <configurationType implementation="de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType"/>
+        <runConfigurationExtension implementation="de.inetsoftware.eclipselaunch.run.EclipseLaunchExtension"/>
+        <postStartupActivity implementation="de.inetsoftware.eclipselaunch.sync.LaunchSyncStartup"/>
+        <notificationGroup id="Eclipse Launch Configs" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
