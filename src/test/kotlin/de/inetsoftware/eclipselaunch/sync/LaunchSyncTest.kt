@@ -11,6 +11,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.HeavyPlatformTestCase
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
+import de.inetsoftware.eclipselaunch.config.EclipseApplicationConfiguration
 import de.inetsoftware.eclipselaunch.config.EclipseJUnitConfiguration
 import de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType
 import de.inetsoftware.eclipselaunch.model.Keys
@@ -142,5 +143,54 @@ class LaunchSyncTest : HeavyPlatformTestCase() {
         val list = ParametersList()
         list.addParametersString("\"-Dx=\${workspace_loc}/a b\" -Dy=\${env_var:HOME}")
         assertEquals(listOf("-Dx=\${workspace_loc}/a b", "-Dy=\${env_var:HOME}"), list.list)
+    }
+
+    fun testJoinedMultiLineArgumentsAreNoChange() {
+        val file = LaunchFile(original)
+        file.setString(Keys.VM_ARGUMENTS, "-Da=1\n-Db=2")
+        WriteAction.run<Exception> { launch.setBinaryContent(file.text.toByteArray()) }
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        val stamp = launch.modificationStamp
+        config().vmParameters = "-Da=1 -Db=2"
+        changed(settings()!!)
+        assertEquals(stamp, launch.modificationStamp)
+    }
+
+    fun testNewConfigurationDoesNotWriteAFileByItself() {
+        val rm = RunManager.getInstance(project)
+        val rs = rm.createConfiguration("New One", EclipseLaunchConfigurationType.getInstance().applicationFactory)
+        (rs.configuration as EclipseApplicationConfiguration).setModule(module)
+        rm.addConfiguration(rs)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        assertEquals(listOf(".project", "Odbc Test MS SQL.launch"), projectDir.children.map { it.name }.sorted())
+    }
+
+    fun testReplacedByEditedCopyKeepsTheLink() {
+        // What the run configuration dialog may do: add an edited copy, then remove the original
+        val rm = RunManagerImpl.getInstanceImpl(project)
+        val original = settings()!!
+        val copy = RunManagerImpl.getInstanceImpl(project).createConfiguration(original.configuration.clone(), original.factory)
+        copy.name = original.name
+        rm.removeConfiguration(original)
+        rm.addConfiguration(copy)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        assertEquals(listOf(".project", "Odbc Test MS SQL.launch"), projectDir.children.map { it.name }.sorted())
+        (copy.configuration as EclipseJUnitConfiguration).vmParameters = "-Dcopy=1"
+        changed(copy)
+        assertEquals("-Dcopy=1", LaunchFile(text()).getString(Keys.VM_ARGUMENTS))
+    }
+
+    fun testCopyDoesNotChangeTheOriginalFile() {
+        val rm = RunManagerImpl.getInstanceImpl(project)
+        val original = settings()!!
+        val copy = rm.createConfiguration(original.configuration.clone(), original.factory)
+        copy.name = "Copy of it"
+        rm.addConfiguration(copy)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        (copy.configuration as EclipseJUnitConfiguration).vmParameters = "-Dcopy=1"
+        changed(copy)
+        assertEquals(this.original, text())
+        assertNull((copy.configuration as EclipseJUnitConfiguration).link)
+        assertEquals("Odbc Test MS SQL.launch", launch.name)
     }
 }

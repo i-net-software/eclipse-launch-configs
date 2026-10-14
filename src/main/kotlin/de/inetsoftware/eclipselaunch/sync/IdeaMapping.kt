@@ -9,6 +9,7 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.util.execution.ParametersListUtil
 import de.inetsoftware.eclipselaunch.config.EclipseApplicationConfiguration
 import de.inetsoftware.eclipselaunch.config.EclipseJUnitConfiguration
 import de.inetsoftware.eclipselaunch.config.EclipseLinkedConfiguration
@@ -129,8 +130,10 @@ object IdeaMapping {
         // Without a "before" every field is taken from IDEA (new launch file)
         fun <T> changed(get: (IdeaSnapshot) -> T) = before == null || get(before) != get(after)
         var s = loaded
-        if (changed { it.vm }) s = s.copy(vmArguments = after.vm)
-        if (changed { it.program }) s = s.copy(programArguments = after.program)
+        // IDEA's editors may join Eclipse's multi-line arguments into one line: same arguments, no change
+        fun argsChanged(get: (IdeaSnapshot) -> String) = before == null || ParametersListUtil.parse(get(before)) != ParametersListUtil.parse(get(after))
+        if (argsChanged { it.vm }) s = s.copy(vmArguments = after.vm)
+        if (argsChanged { it.program }) s = s.copy(programArguments = after.program)
         if (changed { it.workingDirectory }) s = s.copy(workingDirectory = toEclipsePath(after.workingDirectory, ctx))
         if (changed { it.envs }) s = s.copy(environment = after.envs)
         if (changed { it.passParentEnvs }) s = s.copy(appendEnvironment = after.passParentEnvs)

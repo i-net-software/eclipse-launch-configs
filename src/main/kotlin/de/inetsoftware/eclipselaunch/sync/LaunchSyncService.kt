@@ -11,6 +11,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.smartReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -21,6 +22,7 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.OrderEnumerator
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
@@ -36,7 +38,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
-import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -49,6 +50,7 @@ import de.inetsoftware.eclipselaunch.model.LaunchKind
 import de.inetsoftware.eclipselaunch.model.LaunchSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -208,7 +210,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
                 is VFileDeleteEvent -> removed += e.path
                 is VFileMoveEvent -> moved += e.oldPath to e.newPath
                 is VFilePropertyChangeEvent -> if (e.isRename) moved += e.oldPath to e.newPath
-                is VFileCreateEvent -> if (e.isDirectory) dirs += e.path else changed += e.path
+                is VFileCreateEvent -> if (!e.isDirectory) changed += e.path else if (!isSkippedDir(e.path)) dirs += e.path
                 is VFileCopyEvent -> changed += e.newParent.path + "/" + e.newChildName
                 is VFileContentChangeEvent -> changed += e.path
             }
@@ -219,25 +221,60 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
             for ((old, new) in moved) {
                 val tracked = entries.keys.filter { it == old || it.startsWith("$old/") }
                 tracked.forEach { rekey(it, new + it.removePrefix(old)) }
-                if (tracked.isEmpty()) dirs += new
+                if (tracked.isEmpty() && !isSkippedDir(new)) dirs += new
                 else tracked.forEach { changed += new + it.removePrefix(old) }
             }
             for (p in removed) entries.keys.filter { it == p || it.startsWith("$p/") }.forEach(::remove)
             val fs = LocalFileSystem.getInstance()
             for (p in changed) fs.findFileByPath(p)?.takeIf(::isRelevant)?.let(::sync)
-            for (p in dirs) {
-                val dir = fs.findFileByPath(p) ?: continue
-                if (!dir.isDirectory) {
-                    if (isRelevant(dir)) sync(dir)
-                    continue
-                }
-                VfsUtilCore.iterateChildrenRecursively(dir, { f -> !f.isDirectory || (f.name != ".metadata" && f.name != "node_modules" && !f.name.startsWith(".git") && f.name != ".svn") }) { f ->
-                    if (isRelevant(f)) sync(f)
-                    true
-                }
-            }
+            scanDirs(dirs)
         }, project.disposed)
     }
+
+    private val pendingDirs = LinkedHashSet<String>()
+    private var dirScanRunning = false
+
+    /** Looks for launch files in new or moved folders (VCS update, copy); runs in the background. */
+    @RequiresEdt
+    private fun scanDirs(dirs: Collection<String>) {
+        pendingDirs += dirs
+        if (dirScanRunning || pendingDirs.isEmpty()) return
+        dirScanRunning = true
+        val batch = pendingDirs.toList()
+        pendingDirs.clear()
+        scope.launch {
+            try {
+                val found = readAction {
+                    val fs = LocalFileSystem.getInstance()
+                    val index = ProjectFileIndex.getInstance(project)
+                    val result = ArrayList<VirtualFile>()
+                    for (p in batch) {
+                        val dir = fs.findFileByPath(p) ?: continue
+                        if (!dir.isDirectory) {
+                            if (isRelevant(dir)) result += dir
+                            continue
+                        }
+                        if (!index.isInContent(dir)) continue
+                        VfsUtilCore.iterateChildrenRecursively(dir, { f -> !f.isDirectory || (!isSkippedName(f.name) && !index.isExcluded(f)) }) { f ->
+                            if (isRelevant(f)) result += f
+                            true
+                        }
+                    }
+                    result
+                }
+                withContext(Dispatchers.EDT) { found.forEach(::sync) }
+            } finally {
+                withContext(NonCancellable + Dispatchers.EDT) {
+                    dirScanRunning = false
+                    if (pendingDirs.isNotEmpty()) scanDirs(emptyList())
+                }
+            }
+        }
+    }
+
+    private fun isSkippedName(name: String) = name in SKIPPED_DIRS || name.startsWith(".git")
+
+    private fun isSkippedDir(path: String) = path.split('/').any(::isSkippedName)
 
     private fun scheduleRemap() {
         workspace.invalidate()
@@ -280,6 +317,13 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         if (after == before) return
         val link = config.link ?: return
         val file = LocalFileSystem.getInstance().findFileByPath(entry.path) ?: return
+        val sharing = ourSettings().filter { linked(it)?.link?.path == link.path }
+        if (sharing.size > 1 && rs.name != entry.expectedName) {
+            // A copy made in IDEA: it must not change the original's file
+            config.link = null
+            offerLaunchFiles()
+            return
+        }
 
         if (after.module != before.module) {
             // The module is a local choice; Eclipse keeps its project
@@ -303,7 +347,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         }
         entry.snapshot = after
 
-        if (after.name != before.name && after.name != entry.expectedName) rename(file, rs, entry, after.name)
+        if (after.name != before.name && after.name != entry.expectedName && sharing.size == 1) rename(file, rs, entry, after.name)
     }
 
     private fun rename(file: VirtualFile, rs: RunnerAndConfigurationSettings, entry: Entry, newName: String) {
@@ -327,13 +371,35 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
     }
 
     private fun onAdded(rs: RunnerAndConfigurationSettings) {
-        if (suppressEvents > 0 || rs.isTemplate) return
-        val config = linked(rs) ?: return
-        val path = config.link?.path
-        // A copy of another configuration points to the same file: it gets a file of its own
-        if (path != null && ourSettings().none { it !== rs && linked(it)?.link?.path == path } && entries.containsKey(path)) return
-        config.link = null
-        ApplicationManager.getApplication().invokeLater({ createFile(rs, config) }, project.disposed)
+        if (suppressEvents > 0 || rs.isTemplate || linked(rs) == null) return
+        if (linkCheckPending) return
+        linkCheckPending = true
+        // Checked after the run configuration dialog has finished applying all its changes
+        ApplicationManager.getApplication().invokeLater({
+            linkCheckPending = false
+            offerLaunchFiles()
+        }, project.disposed)
+    }
+
+    private var linkCheckPending = false
+    private val offered = HashSet<RunnerAndConfigurationSettings>()
+
+    /** Offers to save configurations created in IDEA as launch files. Nothing is written without the user's click. */
+    @RequiresEdt
+    private fun offerLaunchFiles() {
+        val unlinked = ourSettings().filter { !it.isTemplate && linked(it)?.link == null && it !in offered }
+        if (unlinked.isEmpty()) return
+        offered += unlinked
+        val names = unlinked.joinToString(", ") { "\"${it.name}\"" }
+        val notification = NotificationGroupManager.getInstance().getNotificationGroup(NOTIFICATION_GROUP).createNotification(
+            "Not saved as Eclipse launch file",
+            "$names ${if (unlinked.size == 1) "has" else "have"} no .launch file yet and ${if (unlinked.size == 1) "is" else "are"} only stored in IDEA.",
+            NotificationType.INFORMATION,
+        )
+        notification.addAction(NotificationAction.createSimpleExpiring(if (unlinked.size == 1) "Create launch file" else "Create launch files") {
+            unlinked.filter { runManager.hasSettings(it) && linked(it)?.link == null }.forEach { rs -> createFile(rs, linked(rs)!!) }
+        })
+        notification.notify(project)
     }
 
     /** Writes a new launch file for a configuration created in IDEA, next to the Eclipse project of its module. */
@@ -358,7 +424,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         launch.setString(Keys.PROJECT, eclipseProject)
         if (config.kind == LaunchKind.JUNIT) {
             launch.setBoolean("org.eclipse.jdt.junit.KEEPRUNNING_ATTR", false)
-            launch.setString(Keys.JUNIT_TEST_KIND, junitKind(module))
+            launch.setString(Keys.JUNIT_TEST_KIND, junitKind(module!!))
         }
         val empty = LaunchSettings.read(launch)
         val context = LaunchContext(eclipseProject, projectDir, module, workspace)
@@ -378,20 +444,27 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         entries[file.path] = Entry(file.path, launch.text, settings, after, rs.name, context, launch.keys)
     }
 
+    /** JUnit 5 if the Jupiter API is on the module's class path (no index needed). */
     private fun junitKind(module: Module): String {
-        val scope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, true)
-        val jupiter = JavaPsiFacade.getInstance(project).findClass("org.junit.jupiter.api.Test", scope) != null
+        val jupiter = OrderEnumerator.orderEntries(module).recursively().librariesOnly().classes().roots.any { it.name.startsWith("junit-jupiter-api") }
         return if (jupiter) "org.eclipse.jdt.junit.loader.junit5" else "org.eclipse.jdt.junit.loader.junit4"
     }
 
     private fun onRemoved(rs: RunnerAndConfigurationSettings) {
         if (suppressEvents > 0 || rs.isTemplate) return
         val path = linked(rs)?.link?.path ?: return
+        ApplicationManager.getApplication().invokeLater({ afterRemoved(rs.name, path) }, project.disposed)
+    }
+
+    @RequiresEdt
+    private fun afterRemoved(name: String, path: String) {
+        // The run configuration dialog may replace a configuration by its edited copy
+        if (findSettings(path) != null) return
         entries.remove(path) ?: return
         val file = LocalFileSystem.getInstance().findFileByPath(path) ?: return
         val notification = NotificationGroupManager.getInstance().getNotificationGroup(NOTIFICATION_GROUP).createNotification(
             "Eclipse launch file kept",
-            "\"${rs.name}\" was removed from the run configurations, but ${file.name} still exists and comes back on the next start.",
+            "\"$name\" was removed from the run configurations, but ${file.name} still exists and comes back on the next start.",
             NotificationType.INFORMATION,
         )
         notification.addAction(NotificationAction.createSimpleExpiring("Delete file") {
@@ -465,6 +538,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
 
     companion object {
         const val NOTIFICATION_GROUP = "Eclipse Launch Configs"
+        private val SKIPPED_DIRS = setOf(".metadata", "node_modules", ".svn", ".gradle", ".idea", "build", "bin", "out", ".kotlin")
         private val LOG = logger<LaunchSyncService>()
 
         fun getInstance(project: Project): LaunchSyncService = project.service()
