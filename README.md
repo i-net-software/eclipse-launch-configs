@@ -22,7 +22,7 @@ so a team can keep sharing them between Eclipse and IntelliJ IDEA.
 
 | Eclipse | IntelliJ IDEA |
 |---|---|
-| Project (`PROJECT_ATTR`) | Module whose content root is the folder of that Eclipse project (`.project`), even if the file lies in another project; for Gradle builds the source set module `….test` (JUnit) or `….main` (Application). A module chosen in IDEA stays local and is not written to the file. |
+| Project (`PROJECT_ATTR`) | Module whose content root is the folder of that Eclipse project (`.project`), even if the file lies in another project; for Gradle builds the source set module `….test`; Applications use `….main` only with *Exclude test code*, since Eclipse otherwise puts test code and test dependencies on their class path. A module chosen in IDEA stays local and is not written to the file. |
 | JUnit class / method | Test kind *Class* / *Method* |
 | JUnit container: project, source folder, package | *All in package* (whole module), *Directory*, *Package* (module scope) |
 | VM / program arguments, environment (append/replace) | same, Eclipse variables are kept in the text and resolved at launch |

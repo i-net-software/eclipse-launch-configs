@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-15
+
+### Fixed
+- Java Application launches run with the test code and test dependencies of their project (module `….test`), like Eclipse does unless *Exclude test code* (`ATTR_EXCLUDE_TEST_CODE`) is set; e.g. JDBC drivers declared as `testRuntimeOnly` were missing
+
 ## [1.0.0] - 2026-10-15
 
 ### Added

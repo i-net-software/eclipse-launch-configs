@@ -70,9 +70,17 @@ class EclipseWorkspace(private val project: Project) {
         )
     }
 
-    /** The IDEA module for an Eclipse project folder: the Gradle source set module `.test`/`.main`, else the holder. */
-    fun moduleFor(projectDir: File?, kind: LaunchKind): Module? {
+    /**
+     * The IDEA module for an Eclipse project folder: the Gradle source set module `.test`/`.main`, else the holder.
+     * Applications use `.test` too unless they exclude test code: Eclipse puts the test code and test dependencies
+     * of the project on their class path (e.g. JDBC drivers declared as testRuntimeOnly).
+     */
+    fun moduleFor(projectDir: File?, kind: LaunchKind, excludeTestCode: Boolean = false): Module? {
         val holder = holderModule(projectDir ?: return null) ?: return null
+        val manager = ModuleManager.getInstance(project)
+        if (kind == LaunchKind.APPLICATION && !excludeTestCode) {
+            manager.findModuleByName("${holder.name}.test")?.let { return it }
+        }
         val suffix = if (kind == LaunchKind.JUNIT) "test" else "main"
         return ModuleManager.getInstance(project).findModuleByName("${holder.name}.$suffix") ?: holder
     }

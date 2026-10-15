@@ -215,7 +215,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         val link = config.link ?: LaunchLink(path)
         config.link = link
         val module = link.moduleOverride?.let { ModuleManager.getInstance(project).findModuleByName(it) }
-            ?: workspace.moduleFor(projectDir, kind)
+            ?: workspace.moduleFor(projectDir, kind, launchSettings.excludeTestCode)
         val context = LaunchContext(eclipseProject, projectDir, module, workspace)
         IdeaMapping.apply(config, launchSettings, context)
         val name = uniqueName(file.nameWithoutExtension, eclipseProject, rs)
@@ -336,7 +336,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
                 val rs = findSettings(entry.path) ?: continue
                 val config = linked(rs) ?: continue
                 val wanted = config.link?.moduleOverride?.let { ModuleManager.getInstance(project).findModuleByName(it) }
-                    ?: workspace.moduleFor(entry.context.projectDir, config.kind)
+                    ?: workspace.moduleFor(entry.context.projectDir, config.kind, entry.settings.excludeTestCode)
                 if (wanted != config.moduleBased.configurationModule.module) {
                     config.moduleBased.setModule(wanted)
                     entry.context = entry.context.copy(module = wanted)
@@ -376,7 +376,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
 
         if (after.module != before.module) {
             // The module is a local choice; Eclipse keeps its project
-            val auto = workspace.moduleFor(entry.context.projectDir, config.kind)?.name
+            val auto = workspace.moduleFor(entry.context.projectDir, config.kind, entry.settings.excludeTestCode)?.name
             config.link = link.copy(moduleOverride = after.module.takeIf { it != auto })
             entry.context = entry.context.copy(module = config.moduleBased.configurationModule.module)
         }

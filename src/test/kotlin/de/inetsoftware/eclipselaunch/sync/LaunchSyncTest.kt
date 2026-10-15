@@ -239,4 +239,27 @@ class LaunchSyncTest : HeavyPlatformTestCase() {
         assertEquals(core.path, config.workingDirectory)
         assertEquals("OdbcBridge", rs.folderName)
     }
+
+    fun testApplicationRunsWithTestCodeLikeEclipse() {
+        // Eclipse puts test code and test dependencies on an application's class path unless ATTR_EXCLUDE_TEST_CODE is set
+        val mainModule = createModule(module.name + ".main")
+        val testModule = createModule(module.name + ".test")
+        fun app(name: String, exclude: Boolean?): VirtualFile = WriteAction.compute<VirtualFile, Exception> {
+            projectDir.createChildData(this, "$name.launch").also {
+                it.setBinaryContent(
+                    ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<launchConfiguration type=\"org.eclipse.jdt.launching.localJavaApplication\">\n" +
+                        (if (exclude != null) "    <booleanAttribute key=\"org.eclipse.jdt.launching.ATTR_EXCLUDE_TEST_CODE\" value=\"$exclude\"/>\n" else "") +
+                        "    <stringAttribute key=\"org.eclipse.jdt.launching.MAIN_TYPE\" value=\"a.Main\"/>\n" +
+                        "    <stringAttribute key=\"org.eclipse.jdt.launching.PROJECT_ATTR\" value=\"OdbcBridge\"/>\n</launchConfiguration>\n").toByteArray()
+                )
+            }
+        }
+        val withTests = app("With Tests", null)
+        val without = app("Without Tests", true)
+        LaunchSyncService.getInstance(project).syncAll(listOf(launch, withTests, without))
+        val all = RunManager.getInstance(project).getConfigurationSettingsList(EclipseLaunchConfigurationType.getInstance())
+        fun moduleOf(name: String) = (all.single { it.name == name }.configuration as com.intellij.execution.configurations.ModuleBasedConfiguration<*, *>).configurationModule.module
+        assertEquals(testModule, moduleOf("With Tests"))
+        assertEquals(mainModule, moduleOf("Without Tests"))
+    }
 }

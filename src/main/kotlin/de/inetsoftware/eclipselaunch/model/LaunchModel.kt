@@ -17,6 +17,7 @@ object Keys {
     const val JUNIT_CONTAINER = "org.eclipse.jdt.junit.CONTAINER"
     const val JUNIT_TESTNAME = "org.eclipse.jdt.junit.TESTNAME"
     const val JUNIT_TEST_KIND = "org.eclipse.jdt.junit.TEST_KIND"
+    const val EXCLUDE_TEST_CODE = "org.eclipse.jdt.launching.ATTR_EXCLUDE_TEST_CODE"
 
     const val JRE_CONTAINER_PREFIX = "org.eclipse.jdt.launching.JRE_CONTAINER"
     const val STANDARD_VM_TYPE = "org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType"
@@ -69,6 +70,8 @@ data class LaunchSettings(
     val environment: Map<String, String>,
     val appendEnvironment: Boolean,
     val jreContainer: String?,
+    /** Eclipse runs applications with the test code and test dependencies of the project unless this is set */
+    val excludeTestCode: Boolean = false,
 ) {
     companion object {
         fun read(file: LaunchFile): LaunchSettings {
@@ -95,6 +98,7 @@ data class LaunchSettings(
                 environment = file.getMap(Keys.ENVIRONMENT) ?: emptyMap(),
                 appendEnvironment = file.getBoolean(Keys.APPEND_ENVIRONMENT) ?: true,
                 jreContainer = file.getString(Keys.JRE_CONTAINER)?.takeIf { it.isNotBlank() },
+                excludeTestCode = file.getBoolean(Keys.EXCLUDE_TEST_CODE) ?: false,
             )
         }
 
