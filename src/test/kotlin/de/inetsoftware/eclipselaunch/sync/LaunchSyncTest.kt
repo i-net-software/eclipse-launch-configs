@@ -219,11 +219,16 @@ class LaunchSyncTest : HeavyPlatformTestCase() {
         WriteAction.run<Exception> {
             core = projectDir.parent.createChildDirectory(this, "InetServerCore")
             core.createChildData(this, ".project").setBinaryContent("<projectDescription><name>InetServerCore</name></projectDescription>".toByteArray())
+        }
+        // The module first: a launch file loaded before its module exists is only remapped later (modulesAdded)
+        val coreModule = createModule("InetServerCore")
+        PsiTestUtil.addContentRoot(coreModule, core)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+        WriteAction.run<Exception> {
             other = projectDir.createChildData(this, "Runs Elsewhere.launch")
             other.setBinaryContent(original.replace("value=\"OdbcBridge\"/>", "value=\"InetServerCore\"/>").toByteArray())
         }
-        val coreModule = createModule("InetServerCore")
-        PsiTestUtil.addContentRoot(coreModule, core)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
         LaunchSyncService.getInstance(project).syncAll(listOf(launch, other))
         val rs = RunManager.getInstance(project).getConfigurationSettingsList(EclipseLaunchConfigurationType.getInstance()).single { it.name == "Runs Elsewhere" }
         val config = rs.configuration as EclipseJUnitConfiguration
