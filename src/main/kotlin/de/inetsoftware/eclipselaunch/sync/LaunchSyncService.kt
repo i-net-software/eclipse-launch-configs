@@ -45,6 +45,7 @@ import de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType
 import de.inetsoftware.eclipselaunch.config.EclipseLinkedConfiguration
 import de.inetsoftware.eclipselaunch.config.LaunchLink
 import de.inetsoftware.eclipselaunch.model.Keys
+import de.inetsoftware.eclipselaunch.run.BuildOutputsBeforeRunTask
 import de.inetsoftware.eclipselaunch.model.LaunchFile
 import de.inetsoftware.eclipselaunch.model.LaunchKind
 import de.inetsoftware.eclipselaunch.model.LaunchSettings
@@ -179,6 +180,11 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         rs.folderName = eclipseProject
         silently {
             if (isNew) runManager.addConfiguration(rs) else RunManagerImpl.getInstanceImpl(project).fireRunConfigurationChanged(rs)
+        }
+        if (isNew) {
+            // After the defaults ("Build") were added by the run manager
+            val tasks = RunManagerImpl.getInstanceImpl(project).getBeforeRunTasks(rs.configuration)
+            if (tasks.none { it.providerId == BuildOutputsBeforeRunTask.ID }) rs.configuration.beforeRunTasks = tasks + BuildOutputsBeforeRunTask()
         }
         entries[path] = Entry(path, text, launchSettings, IdeaMapping.snapshot(config, name), name, context, launch.keys)
     }

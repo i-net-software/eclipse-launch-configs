@@ -8,6 +8,9 @@ import com.intellij.execution.impl.RunManagerImpl
 import com.intellij.execution.junit.JUnitConfiguration
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.roots.CompilerModuleExtension
+import com.intellij.openapi.roots.ModuleRootModificationUtil
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.testFramework.HeavyPlatformTestCase
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
@@ -192,5 +195,20 @@ class LaunchSyncTest : HeavyPlatformTestCase() {
         assertEquals(this.original, text())
         assertNull((copy.configuration as EclipseJUnitConfiguration).link)
         assertEquals("Odbc Test MS SQL.launch", launch.name)
+    }
+
+    fun testOutputFoldersMapToTheModuleCompilingTheSources() {
+        val src = WriteAction.compute<VirtualFile, Exception> { projectDir.createChildDirectory(this, "src") }
+        PsiTestUtil.addSourceRoot(module, src)
+        val out = projectDir.path + "/build/classes/java/main"
+        ModuleRootModificationUtil.updateModel(module) { model ->
+            val ext = model.getModuleExtension(CompilerModuleExtension::class.java)
+            ext.inheritCompilerOutputPath(false)
+            ext.setCompilerOutputPath(VfsUtilCore.pathToUrl(out))
+        }
+        val params = JavaParameters()
+        params.vmParametersList.add("-Dcp=\${workspace_loc}/OdbcBridge/bin/main;\${workspace_loc}/Unknown/bin/main")
+        EclipseLaunchExtension().updateJavaParameters(config(), params, null)
+        assertEquals("-Dcp=$out;${projectDir.parent.path}/Unknown/bin/main", params.vmParametersList.list.single())
     }
 }

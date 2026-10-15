@@ -23,6 +23,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <configurationType implementation="de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType"/>
         <runConfigurationExtension implementation="de.inetsoftware.eclipselaunch.run.EclipseLaunchExtension"/>
+        <stepsBeforeRunProvider implementation="de.inetsoftware.eclipselaunch.run.BuildOutputsBeforeRunTaskProvider"/>
         <postStartupActivity implementation="de.inetsoftware.eclipselaunch.sync.LaunchSyncStartup"/>
         <notificationGroup id="Eclipse Launch Configs" displayType="BALLOON"/>
     </extensions>

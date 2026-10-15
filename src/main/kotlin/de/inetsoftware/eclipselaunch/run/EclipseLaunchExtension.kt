@@ -7,12 +7,14 @@ import com.intellij.execution.configurations.ParametersList
 import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.execution.configurations.RunnerSettings
 import com.intellij.execution.ui.SettingsEditorFragment
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.util.io.FileUtil
 import de.inetsoftware.eclipselaunch.config.EclipseLinkedConfiguration
-import de.inetsoftware.eclipselaunch.sync.EclipseWorkspace
 import de.inetsoftware.eclipselaunch.sync.LaunchSyncService
-import java.io.File
 
 /**
  * Resolves Eclipse variables when a configuration is launched, optionally points Eclipse output folders to the
@@ -26,18 +28,35 @@ class EclipseLaunchExtension : RunConfigurationExtension() {
 
     override fun <T : RunConfigurationBase<*>> updateJavaParameters(configuration: T, params: JavaParameters, runnerSettings: RunnerSettings?) {
         val config = configuration as? EclipseLinkedConfiguration ?: return
-        val link = config.link ?: return
-        val service = LaunchSyncService.getInstance(configuration.project)
-        val entry = service.entry(link.path)
-        val projectDir = entry?.context?.projectDir ?: EclipseWorkspace.findProjectDir(File(link.path).parentFile)
-        val vars = service.workspace.variables(entry?.settings?.project ?: entry?.context?.eclipseProject, projectDir)
-        val rewriter = if (link.rewriteOutput) OutputRewriter(service.workspace) else null
-        val resolve = { s: String -> vars.resolve(s).let { rewriter?.rewrite(it) ?: it } }
+        if (config.link == null) return
+        val resolver = LaunchResolver(config)
+        ReadAction.run<RuntimeException> {
+            replaceAll(params.vmParametersList, resolver::resolve)
+            replaceAll(params.programParametersList, resolver::resolve)
+            params.workingDirectory?.let { params.workingDirectory = FileUtil.toSystemIndependentName(resolver.resolve(it)) }
+            if (params.env.isNotEmpty()) params.env = params.env.mapValues { resolver.resolve(it.value) }
+        }
+        report(configuration, resolver)
+    }
 
-        replaceAll(params.vmParametersList, resolve)
-        replaceAll(params.programParametersList, resolve)
-        params.workingDirectory?.let { params.workingDirectory = FileUtil.toSystemIndependentName(resolve(it)) }
-        if (params.env.isNotEmpty()) params.env = params.env.mapValues { resolve(it.value) }
+    private fun report(configuration: RunConfigurationBase<*>, resolver: LaunchResolver) {
+        val rewriter = resolver.rewriter
+        val text = buildString {
+            if (resolver.variables.unresolved.isNotEmpty()) append("Unknown variables: ").append(resolver.variables.unresolved.joinToString { "\${$it}" }).append('\n')
+            if (rewriter != null) append(rewriter.report())
+        }
+        if (text.isNotEmpty()) LOG.info("Launch of \"${configuration.name}\":\n$text")
+        val problems = (rewriter?.unmapped.orEmpty()).toList()
+        if (problems.isNotEmpty() || resolver.variables.unresolved.isNotEmpty()) {
+            NotificationGroupManager.getInstance().getNotificationGroup(LaunchSyncService.NOTIFICATION_GROUP).createNotification(
+                "\"${configuration.name}\": not everything was redirected",
+                buildString {
+                    if (problems.isNotEmpty()) append("Eclipse output folders without IDEA module (left as is): ").append(problems.joinToString(", ")).append(". ")
+                    if (resolver.variables.unresolved.isNotEmpty()) append("Unknown variables: ").append(resolver.variables.unresolved.joinToString { "\${$it}" }).append('.')
+                },
+                NotificationType.WARNING,
+            ).notify(configuration.project)
+        }
     }
 
     private fun replaceAll(list: ParametersList, resolve: (String) -> String) {
@@ -64,22 +83,4 @@ class EclipseLaunchExtension : RunConfigurationExtension() {
     }
 }
 
-/** Replaces `<eclipse project>/bin/<source set>` with the output folder of the matching IDEA module. */
-class OutputRewriter(private val workspace: EclipseWorkspace) {
-    private val cache = HashMap<String, String?>()
-
-    fun rewrite(text: String): String = PATTERN.replace(text) { m ->
-        val dir = m.groupValues[1]
-        val set = m.groupValues[2]
-        val output = cache.getOrPut("$dir|$set") {
-            val file = File(dir)
-            if (file.isAbsolute && workspace.isProjectDir(file)) workspace.outputFor(file, set) else null
-        }
-        output?.let { FileUtil.toSystemIndependentName(it) } ?: m.value
-    }
-
-    companion object {
-        /** An absolute path followed by `/bin/<name>`, ending at a path separator, quote, whitespace or the end */
-        private val PATTERN = Regex("""((?:[A-Za-z]:)?/[^;:"'=\s]*?)/bin/([A-Za-z0-9_-]+)(?=$|[/;:"'\s])""")
-    }
-}
+private val LOG = logger<EclipseLaunchExtension>()

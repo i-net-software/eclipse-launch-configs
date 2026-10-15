@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.CompilerModuleExtension
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtilCore
 import de.inetsoftware.eclipselaunch.model.EclipseVariables
@@ -83,14 +84,32 @@ class EclipseWorkspace(private val project: Project) {
             ?: ProjectFileIndex.getInstance(project).getModuleForFile(vf, false)
     }
 
-    /** IDEA output folder for an Eclipse output folder `<projectDir>/bin/<sourceSet>`. */
-    fun outputFor(projectDir: File, sourceSet: String): String? {
-        val holder = holderModule(projectDir) ?: return null
-        val module = ModuleManager.getInstance(project).findModuleByName("${holder.name}.$sourceSet") ?: return null
+    /**
+     * IDEA modules that compile what Eclipse puts into `<projectDir>/bin/<sourceSet>`: the modules owning the source
+     * folders of that project (a Gradle build may compile the sources of other Eclipse projects), else the source
+     * set module `<holder>.<sourceSet>`. Needs a read action.
+     */
+    fun outputModules(projectDir: File, sourceSet: String): List<Module> {
+        val test = sourceSet.contains("test", ignoreCase = true)
+        val prefix = FileUtil.toSystemIndependentName(projectDir.path).trimEnd('/') + "/"
+        val owners = LinkedHashSet<Module>()
+        for (module in ModuleManager.getInstance(project).modules) {
+            for (entry in ModuleRootManager.getInstance(module).contentEntries) {
+                for (folder in entry.sourceFolders) {
+                    if (folder.isTestSource == test && (VfsUtilCore.urlToPath(folder.url) + "/").startsWith(prefix)) owners += module
+                }
+            }
+        }
+        if (owners.isNotEmpty()) return owners.filter { it.name.endsWith(".$sourceSet") }.ifEmpty { owners.toList() }
+        val holder = holderModule(projectDir) ?: return emptyList()
+        return listOfNotNull(ModuleManager.getInstance(project).findModuleByName("${holder.name}.$sourceSet"))
+    }
+
+    /** Output folder of a module for production or test classes. */
+    fun outputPath(module: Module, test: Boolean): String? {
         val ext = CompilerModuleExtension.getInstance(module) ?: return null
-        val url = if (sourceSet.contains("test", ignoreCase = true)) ext.compilerOutputUrlForTests ?: ext.compilerOutputUrl
-        else ext.compilerOutputUrl ?: ext.compilerOutputUrlForTests
-        return url?.let { VfsUtilCore.urlToPath(it) }?.let { File(it).path }
+        val url = if (test) ext.compilerOutputUrlForTests ?: ext.compilerOutputUrl else ext.compilerOutputUrl ?: ext.compilerOutputUrlForTests
+        return url?.let { FileUtil.toSystemIndependentName(VfsUtilCore.urlToPath(it)) }
     }
 
     /** A folder of this workspace's Eclipse projects, if [dir] is one. */
