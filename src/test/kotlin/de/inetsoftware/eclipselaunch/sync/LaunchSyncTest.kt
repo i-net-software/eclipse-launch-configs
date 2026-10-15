@@ -211,4 +211,24 @@ class LaunchSyncTest : HeavyPlatformTestCase() {
         EclipseLaunchExtension().updateJavaParameters(config(), params, null)
         assertEquals("-Dcp=$out;${projectDir.parent.path}/Unknown/bin/main", params.vmParametersList.list.single())
     }
+
+    fun testLaunchRunsInItsProjectNotInTheFolderOfTheFile() {
+        // CC/Start Reporting Server.launch has PROJECT_ATTR InetServerCore
+        lateinit var core: VirtualFile
+        lateinit var other: VirtualFile
+        WriteAction.run<Exception> {
+            core = projectDir.parent.createChildDirectory(this, "InetServerCore")
+            core.createChildData(this, ".project").setBinaryContent("<projectDescription><name>InetServerCore</name></projectDescription>".toByteArray())
+            other = projectDir.createChildData(this, "Runs Elsewhere.launch")
+            other.setBinaryContent(original.replace("value=\"OdbcBridge\"/>", "value=\"InetServerCore\"/>").toByteArray())
+        }
+        val coreModule = createModule("InetServerCore")
+        PsiTestUtil.addContentRoot(coreModule, core)
+        LaunchSyncService.getInstance(project).syncAll(listOf(launch, other))
+        val rs = RunManager.getInstance(project).getConfigurationSettingsList(EclipseLaunchConfigurationType.getInstance()).single { it.name == "Runs Elsewhere" }
+        val config = rs.configuration as EclipseJUnitConfiguration
+        assertEquals(coreModule, config.configurationModule.module)
+        assertEquals(core.path, config.workingDirectory)
+        assertEquals("OdbcBridge", rs.folderName)
+    }
 }

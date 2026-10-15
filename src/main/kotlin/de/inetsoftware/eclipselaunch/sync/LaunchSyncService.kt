@@ -202,9 +202,13 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
             if (kind == null) return
         }
         val launchSettings = LaunchSettings.read(launch)
-        val projectDir = EclipseWorkspace.findProjectDir(File(file.parent.path))
-            ?: launchSettings.project?.let { workspace.projectDir(it) }
-        val eclipseProject = projectDir?.let { workspace.projectName(it) } ?: launchSettings.project
+        // The launch runs in its Eclipse project (PROJECT_ATTR), which need not be the one holding the file:
+        // CC/Start Reporting Server.launch runs in InetServerCore
+        val fileProjectDir = EclipseWorkspace.findProjectDir(File(file.parent.path))
+        val projectDir = launchSettings.project?.let { workspace.projectDir(it) } ?: fileProjectDir
+        val eclipseProject = launchSettings.project ?: projectDir?.let { workspace.projectName(it) }
+        // Grouped by the project the file is in, like Eclipse shows it
+        val folder = fileProjectDir?.let { workspace.projectName(it) } ?: eclipseProject
         val isNew = settings == null
         val rs = settings ?: runManager.createConfiguration(file.nameWithoutExtension, type.factory(kind))
         val config = linked(rs)!!
@@ -216,7 +220,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         IdeaMapping.apply(config, launchSettings, context)
         val name = uniqueName(file.nameWithoutExtension, eclipseProject, rs)
         rs.name = name
-        rs.folderName = eclipseProject
+        rs.folderName = folder
         silently {
             if (isNew) runManager.addConfiguration(rs) else RunManagerImpl.getInstanceImpl(project).fireRunConfigurationChanged(rs)
         }
