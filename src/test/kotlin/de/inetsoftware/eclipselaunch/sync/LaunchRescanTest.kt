@@ -8,7 +8,7 @@ import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
 import de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType
-import de.inetsoftware.eclipselaunch.ui.EclipseLaunchFileType
+import de.inetsoftware.eclipselaunch.ui.LaunchFileIconProvider
 
 /** A new project gets its content roots later (Gradle sync): the launch files must show up then. */
 class LaunchRescanTest : HeavyPlatformTestCase() {
@@ -34,7 +34,8 @@ class LaunchRescanTest : HeavyPlatformTestCase() {
             Thread.sleep(50)
         }
         assertEquals(listOf("Odbc Test MS SQL"), settings().map { it.name })
-        assertEquals(EclipseLaunchFileType, launch.fileType)
+        assertEquals("XML", launch.fileType.name)
+        assertSame(EclipseLaunchConfigurationType.ICON, LaunchFileIconProvider().getIcon(launch, 0, project))
     }
 
     private fun settings() = RunManager.getInstance(project).getConfigurationSettingsList(EclipseLaunchConfigurationType.getInstance())

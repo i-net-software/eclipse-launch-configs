@@ -8,7 +8,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Key
@@ -46,7 +45,7 @@ class BuildOutputsBeforeRunTaskProvider : BeforeRunTaskProvider<BuildOutputsBefo
         if (config.link?.rewriteOutput == false) return true
         val resolver = LaunchResolver(config)
         val rewriter = resolver.rewriter ?: return true
-        ReadAction.run<RuntimeException> {
+        ApplicationManager.getApplication().runReadAction {
             resolver.resolve(config.vmParameters.orEmpty())
             resolver.resolve(config.programParameters.orEmpty())
             config.envs.values.forEach { resolver.resolve(it) }

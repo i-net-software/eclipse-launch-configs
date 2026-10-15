@@ -24,7 +24,9 @@
         <configurationType implementation="de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType"/>
         <runConfigurationExtension implementation="de.inetsoftware.eclipselaunch.run.EclipseLaunchExtension"/>
         <stepsBeforeRunProvider implementation="de.inetsoftware.eclipselaunch.run.BuildOutputsBeforeRunTaskProvider"/>
-        <fileType name="Eclipse Launch" implementationClass="de.inetsoftware.eclipselaunch.ui.EclipseLaunchFileType" fieldName="INSTANCE" language="XML" extensions="launch"/>
+        <!-- .launch files are XML; by name, so no dependency on the XML plugin of 2026.3 is needed -->
+        <fileType name="XML" extensions="launch"/>
+        <fileIconProvider implementation="de.inetsoftware.eclipselaunch.ui.LaunchFileIconProvider"/>
         <runConfigurationProducer implementation="de.inetsoftware.eclipselaunch.run.JUnitLaunchFileRunProducer"/>
         <runConfigurationProducer implementation="de.inetsoftware.eclipselaunch.run.ApplicationLaunchFileRunProducer"/>
         <postStartupActivity implementation="de.inetsoftware.eclipselaunch.sync.LaunchSyncStartup"/>

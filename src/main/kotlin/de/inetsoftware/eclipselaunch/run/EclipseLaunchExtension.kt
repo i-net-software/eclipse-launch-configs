@@ -9,7 +9,7 @@ import com.intellij.execution.configurations.RunnerSettings
 import com.intellij.execution.ui.SettingsEditorFragment
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.util.io.FileUtil
@@ -30,7 +30,7 @@ class EclipseLaunchExtension : RunConfigurationExtension() {
         val config = configuration as? EclipseLinkedConfiguration ?: return
         if (config.link == null) return
         val resolver = LaunchResolver(config)
-        ReadAction.run<RuntimeException> {
+        ApplicationManager.getApplication().runReadAction {
             replaceAll(params.vmParametersList, resolver::resolve)
             replaceAll(params.programParametersList, resolver::resolve)
             params.workingDirectory?.let { params.workingDirectory = FileUtil.toSystemIndependentName(resolver.resolve(it)) }

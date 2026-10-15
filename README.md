@@ -11,7 +11,10 @@ so a team can keep sharing them between Eclipse and IntelliJ IDEA.
   wrote them. New attributes are inserted where Eclipse would put them (sorted by key).
 - Changes to the file (VCS update, Eclipse, the editor) are loaded immediately. Renaming or deleting the file
   renames or removes the configuration; renaming the configuration renames the file.
-- New configurations of the Eclipse Launch type get a new `.launch` file in the Eclipse project of their module.
+- New configurations of the Eclipse Launch type are only stored in IDEA; a notification offers to write a `.launch`
+  file into the Eclipse project of their module.
+- `.launch` files have their own icon and can be run or debugged from their context menu. **Run → Reload Eclipse
+  Launch Files** reads all files again; this also happens automatically when a Gradle sync changes the modules.
 - Launch files in the Eclipse workspace metadata (`.metadata/.plugins/org.eclipse.debug.core/.launches`) are
   private to one Eclipse installation and are ignored.
 
@@ -19,7 +22,7 @@ so a team can keep sharing them between Eclipse and IntelliJ IDEA.
 
 | Eclipse | IntelliJ IDEA |
 |---|---|
-| Project (`PROJECT_ATTR`) | Module whose content root is the folder of the Eclipse project (`.project`); for Gradle builds the source set module `….test` (JUnit) or `….main` (Application). A module chosen in IDEA stays local and is not written to the file. |
+| Project (`PROJECT_ATTR`) | Module whose content root is the folder of that Eclipse project (`.project`), even if the file lies in another project; for Gradle builds the source set module `….test` (JUnit) or `….main` (Application). A module chosen in IDEA stays local and is not written to the file. |
 | JUnit class / method | Test kind *Class* / *Method* |
 | JUnit container: project, source folder, package | *All in package* (whole module), *Directory*, *Package* (module scope) |
 | VM / program arguments, environment (append/replace) | same, Eclipse variables are kept in the text and resolved at launch |
@@ -34,9 +37,14 @@ Unknown variables are passed through unchanged.
 
 **Output folders:** Eclipse/Buildship compile into `bin/main`, `bin/test`, … Configurations often pass these
 folders in system properties (plugin class paths). With *Use IDEA output folders* (Eclipse section of the editor,
-on by default) `<project>/bin/<source set>` is replaced at launch by the output folder of the module
-`<module>.<source set>`. The file keeps `bin/main`. IDEA only builds the modules the configuration depends on,
-so build the project first when the referenced modules are not dependencies.
+on by default) `<project>/bin/<source set>` is replaced at launch by the output folder of the IDEA module that
+compiles those sources (a Gradle build may compile the sources of other projects). The file keeps `bin/main`.
+The before-launch step *Build modules of Eclipse output folders* builds these modules incrementally, since they are
+usually not dependencies of the configuration. Each redirect is logged; folders without an IDEA module trigger a warning.
+
+**Related:** builds that compile source folders of other projects (`srcDirs '../Other/src'`) work best with the
+[Gradle Sync Queue](https://github.com/i-net-software/gradle-sync-queue) plugin (1.1+), which turns those folders into
+module dependencies like Eclipse does.
 
 ## Build
 
