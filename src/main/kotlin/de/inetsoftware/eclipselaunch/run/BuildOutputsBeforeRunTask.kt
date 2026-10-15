@@ -6,7 +6,10 @@ import com.intellij.execution.configurations.RunConfiguration
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Key
 import com.intellij.task.ProjectTaskManager
@@ -52,7 +55,18 @@ class BuildOutputsBeforeRunTaskProvider : BeforeRunTaskProvider<BuildOutputsBefo
         if (modules.isEmpty()) return true
         LOG.info("Building ${modules.size} modules for \"${configuration.name}\": ${modules.joinToString { it.name }}")
         val result = ProjectTaskManager.getInstance(configuration.project).build(*modules).blockingGet(Int.MAX_VALUE) ?: return false
-        return !result.isAborted && !result.hasErrors()
+        if (result.isAborted) return false
+        if (!result.hasErrors()) return true
+        // Like Eclipse: errors in a plugin module need not stop the launch
+        var proceed = false
+        ApplicationManager.getApplication().invokeAndWait({
+            proceed = MessageDialogBuilder.yesNo(
+                "Errors in Modules",
+                "Building the modules of the Eclipse output folders reported errors (see the Build tool window).\n" +
+                    "Classes that failed to compile are missing at runtime. Launch \"${configuration.name}\" anyway?",
+            ).yesText("Launch").noText("Cancel").ask(configuration.project)
+        }, ModalityState.any())
+        return proceed
     }
 }
 
