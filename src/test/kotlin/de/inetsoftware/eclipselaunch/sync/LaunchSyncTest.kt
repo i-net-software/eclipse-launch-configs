@@ -227,7 +227,10 @@ class LaunchSyncTest : HeavyPlatformTestCase() {
         LaunchSyncService.getInstance(project).syncAll(listOf(launch, other))
         val rs = RunManager.getInstance(project).getConfigurationSettingsList(EclipseLaunchConfigurationType.getInstance()).single { it.name == "Runs Elsewhere" }
         val config = rs.configuration as EclipseJUnitConfiguration
-        assertEquals(coreModule, config.configurationModule.module)
+        val info = "core=${core.path} roots=" + com.intellij.openapi.module.ModuleManager.getInstance(project).modules.joinToString {
+            it.name + ":" + com.intellij.openapi.roots.ModuleRootManager.getInstance(it).contentRoots.joinToString { r -> r.path }
+        } + " projectDir(InetServerCore)=" + LaunchSyncService.getInstance(project).workspace.projectDir("InetServerCore")
+        assertEquals(info, coreModule, config.configurationModule.module)
         assertEquals(core.path, config.workingDirectory)
         assertEquals("OdbcBridge", rs.folderName)
     }
