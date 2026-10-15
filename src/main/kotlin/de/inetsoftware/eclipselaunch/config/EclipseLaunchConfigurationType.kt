@@ -15,7 +15,7 @@ class EclipseLaunchConfigurationType : ConfigurationTypeBase(
     ID,
     "Eclipse Launch",
     "Eclipse launch configurations (.launch files), kept in sync with the file",
-    IconLoader.getIcon("/icons/eclipseLaunch.svg", EclipseLaunchConfigurationType::class.java),
+    ICON,
 ) {
     val junitFactory = Factory(this, LaunchKind.JUNIT, "Eclipse JUnit", "JUnit", AllIcons.RunConfigurations.Junit)
     val applicationFactory = Factory(this, LaunchKind.APPLICATION, "Eclipse Java Application", "Java Application", AllIcons.RunConfigurations.Application)
@@ -49,6 +49,9 @@ class EclipseLaunchConfigurationType : ConfigurationTypeBase(
 
     companion object {
         const val ID = "EclipseLaunchConfiguration"
+
+        @JvmField
+        val ICON: Icon = IconLoader.getIcon("/icons/eclipseLaunch.svg", EclipseLaunchConfigurationType::class.java)
 
         fun getInstance(): EclipseLaunchConfigurationType =
             ConfigurationTypeUtil.findConfigurationType(EclipseLaunchConfigurationType::class.java)

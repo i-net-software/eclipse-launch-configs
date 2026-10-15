@@ -24,7 +24,17 @@
         <configurationType implementation="de.inetsoftware.eclipselaunch.config.EclipseLaunchConfigurationType"/>
         <runConfigurationExtension implementation="de.inetsoftware.eclipselaunch.run.EclipseLaunchExtension"/>
         <stepsBeforeRunProvider implementation="de.inetsoftware.eclipselaunch.run.BuildOutputsBeforeRunTaskProvider"/>
+        <fileType name="Eclipse Launch" implementationClass="de.inetsoftware.eclipselaunch.ui.EclipseLaunchFileType" fieldName="INSTANCE" language="XML" extensions="launch"/>
+        <runConfigurationProducer implementation="de.inetsoftware.eclipselaunch.run.JUnitLaunchFileRunProducer"/>
+        <runConfigurationProducer implementation="de.inetsoftware.eclipselaunch.run.ApplicationLaunchFileRunProducer"/>
         <postStartupActivity implementation="de.inetsoftware.eclipselaunch.sync.LaunchSyncStartup"/>
         <notificationGroup id="Eclipse Launch Configs" displayType="BALLOON"/>
     </extensions>
+    <actions>
+        <action id="EclipseLaunch.Reload" class="de.inetsoftware.eclipselaunch.ui.ReloadLaunchFilesAction"
+                text="Reload Eclipse Launch Files" description="Read all Eclipse .launch files of the project again"
+                icon="/icons/eclipseLaunch.svg">
+            <add-to-group group-id="RunMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

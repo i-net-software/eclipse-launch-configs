@@ -21,6 +21,8 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ModuleRootEvent
+import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.OrderEnumerator
 import com.intellij.openapi.roots.ProjectFileIndex
@@ -78,7 +80,10 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         var context: LaunchContext,
         /** Attribute keys of the file */
         var keys: List<String>,
-    )
+    ) {
+        /** The file itself; keeps its identity when renamed or moved */
+        var file: VirtualFile? = null
+    }
 
     val workspace = EclipseWorkspace(project)
     private val entries = HashMap<String, Entry>()
@@ -108,14 +113,44 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
             override fun modulesAdded(project: Project, modules: List<Module>) = scheduleRemap()
             override fun moduleRemoved(project: Project, module: Module) = scheduleRemap()
         })
-        if (scan) scope.launch { initialScan() }
+        if (scan) {
+            // A new project gets its content roots from the Gradle sync, long after it was opened
+            connection.subscribe(ModuleRootListener.TOPIC, object : ModuleRootListener {
+                override fun rootsChanged(event: ModuleRootEvent) = rescan()
+            })
+            rescan()
+        }
     }
 
-    private suspend fun initialScan() {
-        val files = smartReadAction(project) {
-            FilenameIndex.getAllFilesByExt(project, "launch", GlobalSearchScope.projectScope(project)).filter(::isRelevant)
-        }
-        withContext(Dispatchers.EDT) { syncAll(files) }
+    private var rescanRunning = false
+    private var rescanAgain = false
+
+    /** Loads all launch files of the project once indexing is done; coalesces calls while a scan runs. */
+    fun rescan(force: Boolean = false) {
+        ApplicationManager.getApplication().invokeLater({
+            if (force) entries.values.forEach { it.text = "" }
+            if (rescanRunning) {
+                rescanAgain = true
+                return@invokeLater
+            }
+            rescanRunning = true
+            scope.launch {
+                try {
+                    val files = smartReadAction(project) {
+                        FilenameIndex.getAllFilesByExt(project, "launch", GlobalSearchScope.projectScope(project)).filter(::isRelevant)
+                    }
+                    withContext(Dispatchers.EDT) { syncAll(files) }
+                } finally {
+                    withContext(NonCancellable + Dispatchers.EDT) {
+                        rescanRunning = false
+                        if (rescanAgain) {
+                            rescanAgain = false
+                            rescan()
+                        }
+                    }
+                }
+            }
+        }, project.disposed)
     }
 
     /** Loads all given files and removes configurations whose file no longer exists. */
@@ -126,7 +161,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         val known = files.mapTo(HashSet()) { it.path }
         for (settings in ourSettings()) {
             val path = linked(settings)?.link?.path ?: continue
-            if (path !in known && LocalFileSystem.getInstance().refreshAndFindFileByPath(path) == null) {
+            if (path !in known && !File(path).exists()) {
                 entries.remove(path)
                 silently { runManager.removeConfiguration(settings) }
             }
@@ -144,6 +179,10 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
     @RequiresEdt
     fun sync(file: VirtualFile) {
         val path = file.path
+        if (entries[path] == null) {
+            // Renamed or moved before its event was handled
+            entries.values.firstOrNull { it.file == file && it.path != path }?.let { rekey(it.path, path) }
+        }
         val text = readText(file) ?: return
         val entry = entries[path]
         if (entry != null && entry.text == text) return
@@ -186,7 +225,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
             val tasks = RunManagerImpl.getInstanceImpl(project).getBeforeRunTasks(rs.configuration)
             if (tasks.none { it.providerId == BuildOutputsBeforeRunTask.ID }) rs.configuration.beforeRunTasks = tasks + BuildOutputsBeforeRunTask()
         }
-        entries[path] = Entry(path, text, launchSettings, IdeaMapping.snapshot(config, name), name, context, launch.keys)
+        entries[path] = Entry(path, text, launchSettings, IdeaMapping.snapshot(config, name), name, context, launch.keys).also { it.file = file }
     }
 
     @RequiresEdt
@@ -447,7 +486,7 @@ class LaunchSyncService(private val project: Project, private val scope: Corouti
         }
         config.link = LaunchLink(file.path, rewriteOutput = true)
         rs.folderName = eclipseProject
-        entries[file.path] = Entry(file.path, launch.text, settings, after, rs.name, context, launch.keys)
+        entries[file.path] = Entry(file.path, launch.text, settings, after, rs.name, context, launch.keys).also { it.file = file }
     }
 
     /** JUnit 5 if the Jupiter API is on the module's class path (no index needed). */
